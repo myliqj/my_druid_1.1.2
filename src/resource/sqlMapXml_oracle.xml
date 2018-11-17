@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- 具体所有节 CDATA，都要有 type 属性 ，否则无法加载  -->
+
+<metadata dbtype="oracle"> 
+
+<systems type="type">
+
+  <!-- L_GetCurUserName -->
+  <current_username type="select">
+	<![CDATA[SELECT TRIM(USER) AS USERNAME FROM SYSIBM.SYSDUMMY1]]>
+  </current_username>
+  
+  <!-- L_GetLoginUserName -->
+  <login_username type="select">
+	<![CDATA[SELECT TRIM(USER) AS LOGINUSER FROM DUAL]]>
+  </login_username>
+
+</systems>
+ 
+
+<tables type="type">
+  <!-- P_GetTableList / P_GetTableDesc(where) -->
+  <table_list type="select">
+	<![CDATA[
+		select trim(o.owner)||'.'||trim(o.object_name) TABLENAME
+		  , case when o.object_type='SYNONYM' then 
+		     (select trim(x.table_owner)||'.'||trim(x.TABLE_NAME) from all_SYNONYMS x
+		      where x.owner=o.owner and x.SYNONYM_NAME=o.object_name)
+		     else trim(o.owner)||'.'||trim(o.object_name) end  BASETABLENAME
+		  , c.comments DESCRIPTION,o.created CREATETIME,t.LAST_ANALYZED STATSTIME
+		  , t.TABLESPACE_NAME TABLESPACE,' ' INDEXTABLESPACE
+		  , t.num_rows ROWSCOUNT
+		  , case when o.object_type='VIEW' then 'VIEW'
+		         when o.object_type='TABLE' then 'TABLE'
+		         when o.object_type='SYNONYM' then 'ALIAS'
+		     else 'UNKNOW' end TABLETYPE  
+		  , o.object_id OBJECTID
+		from all_objects o 
+		  left join all_tables t on t.table_name=o.object_name and o.owner=t.owner 
+		  left join all_tab_comments c on c.table_name = o.object_name and o.owner=c.owner 
+		where o.object_type in ('VIEW','TABLE','SYNONYM') ]]>
+  </table_list>
+  <table_list.where type="where"><![CDATA[ o.object_name = ? AND o.owner = ? ]]></table_list.where>
+  <table_list.where_nosys type="where"><![CDATA[o.owner not in ('PUBLIC','OUTLN','SYSTEM','ORACLE_OCM','DBSNMP','SYSMAN','APPQOSSYS','SYS','WMSYS')]]></table_list.where_nosys>
+  <table_list.orderby type="orderby"><![CDATA[TABLENAME]]></table_list.orderby>
+  <table_list.remarks type="remarks"><![CDATA[获取表信息（包括实体表，视图，昵称，别名，同义词）：TableName,BaseTableName,Description,CreateTime,STATS_TIME
+	  ,TableSpace,IndexTableSpace,RowsCount,TableType:TABLE/VIEW/NICKNAME/ALIAS,ObjectID]]>
+  </table_list.remarks>
+
+  <!-- <table_list.params>
+    <tabname DataType="VARCHAR">1</tabname>
+    <tabschema DataType="VARCHAR">2</tabschema>
+  </table_list.params>  -->
+  	
+  <!-- L_BuildTabArrDDL -->
+  <table_arr type="select">   
+    <![CDATA[]]>
+  </table_arr>	
+
+  <!-- P_GetTableDDl -->
+  <!-- #tab_name#,#tab_schema# -->
+  <table_ddl type="select">   
+    <![CDATA[
+      select substr(to_char(DBMS_METADATA.GET_DDL('TABLE',?,?)),1) as TAB_DDL
+      FROM dual
+    ]]>
+  </table_ddl>
+  <!-- #index_name#,#index_schema# -->
+  <table_index_ddl type="select">   
+    <![CDATA[
+      select substr(to_char(DBMS_METADATA.GET_DDL('INDEX',?,?)),1) as get_ddl
+      FROM dual
+    ]]>
+  </table_index_ddl>	
+
+  <!-- L_BuildTabInTabSpaceDDL -->
+  <table_arr_space type="select">   
+    <![CDATA[]]>
+  </table_arr_space>
+  <table_arr_space_partition_exp type="select">   
+    <![CDATA[]]>
+  </table_arr_space_partition_exp>
+  <table_arr_space_partition_val type="select">   
+    <![CDATA[]]>
+  </table_arr_space_partition_val>
+</tables> 
+
+
+<fields type="type"> 
+  <!-- P_GetFieldList -->
+  <field_list type="select">
+    <![CDATA[
+	 select a.COLUMN_ID No,A.column_name FieldName,B.comments Description,A.data_type typename, A.data_length length
+	  ,nvl(A.Data_Scale,0) scale
+	  ,A.nullable NotNull, A.Data_default "default"
+	  /*,a.data_precision \* number/float:Length */
+	from all_tab_columns A, all_col_comments B  
+	where a.owner=b.owner and A.Table_Name = B.Table_Name and A.Column_Name = B.Column_Name 
+	  and A.Table_Name = ? and a.owner = ?
+	order by a.COLUMN_ID
+	]]>
+  </field_list>
+  <field_list.remarks type="remarks"><![CDATA[获取字段信息：No,FieldName,Description,typename,length
+    ,scale,NotNull:N(不可空)/Y(可空),default]]></field_list.remarks>
+  
+  <field_arr_identity type="select">
+    <![CDATA[]]>
+  </field_arr_identity>
+</fields>
+
+
+<indexes type="type">
+  <!-- P_GetIndexList -->
+  <index_list type="select">
+    <![CDATA[
+	 select a.INDEXSCHEMA,a.INDEXNAME,max(FIELDNAMES) FIELDNAMES 
+	   ,INDEXTYPE,CREATE_TIME,STATS_TIME,REMARKS,ROWSCOUNT,OBJECTID
+	 from(
+	   select a.OWNER INDEXSCHEMA,a.INDEX_NAME INDEXNAME,wm_concat(c.COLUMN_NAME) over (partition by a.OWNER,a.INDEX_NAME order by c.COLUMN_POSITION) FIELDNAMES
+	    ,case when UNIQUENESS='UNIQUE' then case when exists(select 1 from all_constraints x where x.constraint_type='P' 
+          and x.OWNER=a.owner and x.CONSTRAINT_NAME=a.index_name) then 'P' else  'U' end else 'N' end INDEXTYPE
+	    ,o.created CREATE_TIME,A.last_analyzed STATS_TIME, ' ' REMARKS,A.num_rows ROWSCOUNT,o.object_id OBJECTID  
+	   from all_indexes a inner join all_objects o on a.OWNER=o.OWNER and a.INDEX_NAME=o.OBJECT_NAME
+	     inner join all_ind_columns c on c.index_owner=a.owner and c.index_name=a.index_name
+	     where a.Table_Name = ? AND a.TABLE_OWNER= ?
+	   ) a group by INDEXSCHEMA,INDEXNAME,INDEXTYPE,CREATE_TIME,STATS_TIME,REMARKS,ROWSCOUNT,OBJECTID
+	 ORDER BY CASE WHEN A.INDEXTYPE='P' THEN 1 WHEN A.INDEXTYPE='U' THEN 2 ELSE 3 END,A.CREATE_TIME
+	]]>
+  </index_list>
+  <index_list.remarks type="remarks"><![CDATA[获取索引信息：INDEXSCHEMA,INDEXNAME,FIELDNAMES,INDEXTYPE:P/D/U
+    ,CREATE_TIME,STATS_TIME,REMARKS,RowsCount,ObjectID]]></index_list.remarks>
+  <index_list_nocolumns type="select"><![CDATA[
+    select a.OWNER INDEXSCHEMA,a.INDEX_NAME INDEXNAME,' ' FIELDNAMES
+	  ,case when UNIQUENESS='UNIQUE' then case when exists(select 1 from all_constraints x where x.constraint_type='P' 
+        and x.OWNER=a.owner and x.CONSTRAINT_NAME=a.index_name) then 'P' else  'U' end else 'N' end INDEXTYPE
+	  ,o.created CREATE_TIME,A.last_analyzed STATS_TIME, ' ' REMARKS,A.num_rows ROWSCOUNT,o.object_id OBJECTID
+	from all_indexes a inner join all_objects o on a.OWNER=o.OWNER and a.INDEX_NAME=o.OBJECT_NAME
+	  inner join all_ind_columns c on c.index_owner=a.owner and c.index_name=a.index_name
+	  where a.Table_Name = ? AND a.TABLE_OWNER= ?
+	ORDER BY CASE WHEN A.INDEXTYPE='P' THEN 1 WHEN A.INDEXTYPE='U' THEN 2 ELSE 3 END,A.CREATE_TIME
+  ]]></index_list_nocolumns>
+  <index_list_nocolumns_ind_col type="select"><![CDATA[
+    select COLUMN_NAME, COLUMN_POSITION, DESCEND
+	from all_Ind_Columns a
+	where a.INDEX_name = ? AND a.INDEX_OWNER= ?
+	ORDER BY COLUMN_POSITION
+  ]]></index_list_nocolumns_ind_col>
+</indexes>
+
+<views type="type">
+  <!-- P_GetViewDesc -->
+  <view_info type="select">
+    <![CDATA[
+	  select case when o.status='VALID' then 'Y' else 'N' end VALID,o.created CREATE_TIME, c.comments REMARKS
+      from all_objects o --on o.object_name=v.view_name and o.owner=v.owner -- all_views v inner join 
+        left join all_tab_comments c on c.table_name = o.object_name and c.owner=o.owner  
+      where o.object_name = ? and o.owner = ? and o.OBJECT_TYPE='VIEW' 
+	]]>
+  </view_info>
+
+  <!-- P_GetViewText -->
+  <view_text type="select">
+    <![CDATA[
+	  select v.text,' ' FUNC_PATH,' ' VIEWCHECK,v.READ_ONLY READONLY
+	    , case when o.status='VALID' then 'Y' else 'N' end VALID
+	    , ' ' DEFINER,' 'PROPERTY, c.comments REMARKS
+      from all_views v inner join all_objects o on o.object_name=v.view_name and o.owner=v.owner 
+        left join all_tab_comments c on c.table_name = o.object_name and c.owner=o.owner  
+      where o.object_name = ? and o.owner = ? and o.OBJECT_TYPE='VIEW' 
+	]]>
+  </view_text>
+</views>
+
+<alias type="type">
+  <!-- P_GetAliasText -->
+  <alias_text type="select">
+    <![CDATA[ 
+	  select 'CREATE OR REPLACE SYNONYM '||TRIM(A.owner)||'.'||TRIM(A.SYNONYM_NAME)
+	     ||' FOR ' || trim(a.table_owner)||'.'||trim(a.TABLE_NAME) ALIAS_TEXT
+	     ,c.comments REMARKS
+	  from all_SYNONYMS a
+	    left join all_tab_comments c on c.table_name = a.SYNONYM_NAME and c.owner=a.owner 
+	  where a.SYNONYM_NAME = ? and a.owner = ? 
+	]]>
+  </alias_text>
+</alias>
+
+<nicknames type="type">
+  <!-- P_GetNickNameText -->
+  <nickname_text type="select">
+    <![CDATA[]]>  
+  </nickname_text>
+  <nickname_server type="select">
+    <![CDATA[]]>  
+  </nickname_server>
+  <nickname_server_option type="select">
+    <![CDATA[]]>  
+  </nickname_server_option>
+  <nickname_server_wrapper type="select">
+    <![CDATA[]]>  
+  </nickname_server_wrapper>
+  <nickname_server_wrapper_option type="select">
+    <![CDATA[]]>  
+  </nickname_server_wrapper_option>  
+  <nickname_server_user_mapping type="select">
+    <![CDATA[]]>
+  </nickname_server_user_mapping>
+   
+</nicknames>
+
+<procedures type="type">
+
+  <!-- P_GetProcList / P_GetProcDesc(where) -->
+  <proc_list type="select">
+    <![CDATA[
+    select o.owner ProcSchema,o.object_name ProcName,' ' Description,o.created CreateTime
+	  , case when o.status='VALID' then 'Y' else 'N' end IsValid
+	  , p.procedure_Name SpecificName
+	  , case when o.object_type='PROCEDURE' then 'PROCEDURE'
+	       when o.object_type='FUNCTION' then 'FUNCTION'
+	       when o.object_type='PACKAGE' then 'PACKAGE'
+	       when o.object_type='TRIGGER' then 'TRIGGER'
+	       when o.object_type='TYPE' then 'TYPE'
+	    else 'N/A' end procType
+	  , o.object_id ObjectID
+	from all_objects o inner join all_procedures p
+	    on p.object_name=o.object_name and p.owner=o.owner
+	where o.object_type in ('PROCEDURE','PACKAGE','FUNCTION','TRIGGER','TYPE') ]]>  
+  </proc_list>
+  <proc_list.where type="where"><![CDATA[ (o.object_name = ? or p.procedure_Name = ?) and o.owner = ?]]></proc_list.where>
+  <proc_list.where_nosys type="where"><![CDATA[o.owner not in ('PUBLIC','OUTLN','SYSTEM','ORACLE_OCM','DBSNMP','SYSMAN','APPQOSSYS','SYS','WMSYS')]]></proc_list.where_nosys>	
+  <proc_list.orderby type="orderby"><![CDATA[CreateTime desc]]></proc_list.orderby>
+  <proc_list.remarks type="remarks"><![CDATA[获取过程/函数列表信息：ProcSchema,ProcName,Description,CreateTime
+	  ,IsValid:Y/N,SpecificName,ProcType,ObjectID]]>
+  </proc_list.remarks>
+
+  <!-- P_RebindProc_RunText -->
+  <proc_rebind_runtext type="select">
+    <![CDATA[
+	  select 'alter procedure #procshema#.#procname# compile ' proc_rebind_runtext
+	  from dual 
+	]]>  
+  </proc_rebind_runtext>
+  <proc_rebind_runtext_error type="select">
+    <![CDATA[
+	  select a.line,a.position,a.text
+	  from all_ERRORS a
+	  where a.name=? and a.owner=?
+	  order by a.line
+	]]>  
+  </proc_rebind_runtext_error>
+  
+  
+  <!-- P_GetProcParamsVo -->
+  <proc_params type="select">
+    <![CDATA[]]>
+  </proc_params>
+  
+  <!-- L_GetProcParamSize -->
+  <proc_param_size type="select">
+    <![CDATA[]]>
+  </proc_param_size>
+    
+  <!-- P_GetProcText -->
+  <proc_text type="select">
+    <![CDATA[
+	  select decode(line,1,'create or replace '||text, text) PROCTEXT,line, type
+	  from all_source where name=? and owner=?
+	  order by type,line
+	]]>
+  </proc_text> 
+</procedures>
+
+<triggers type="type">
+
+  <!-- P_GetProcList : trigger -->
+  <trigger_list type="select">
+    <![CDATA[]]>  
+  </trigger_list>
+  <trigger_list.where type="where"><![CDATA[t.trigname = ? and t.trigschema = ?]]></trigger_list.where>	
+  <trigger_list.orderby type="orderby"><![CDATA[CreateTime desc]]></trigger_list.orderby>
+  <trigger_list.remarks type="remarks"><![CDATA[获取触发器列表信息：ProcSchema,ProcName,Description,CreateTime
+  ,IsValid:Y/N,SpecificName,ProcType,ObjectID]]>
+  </trigger_list.remarks>
+  
+  <!-- P_GetTriggerText <1> tab -->
+  <trigger_text_tab_all type="select">
+    <![CDATA[]]>  
+  </trigger_text_tab_all>  
+  <trigger_text.where_tab type="where"><![CDATA[t.TABSCHEMA = ? and t.TABNAME = ?]]></trigger_text.where_tab>
+  <trigger_text.where_form_tri type="where"><![CDATA[exists(select 1 from syscat.triggers x 
+    where x.TRIGNAME = ? and x.TRIGSCHEMA = ? and t.TABSCHEMA = x.TABSCHEMA and t.TABNAME=x.TABNAME)]]>
+  </trigger_text.where_form_tri>
+  <trigger_text.where_form_tri_no_all type="where"><![CDATA[not (t.TRIGNAME = ? and t.TRIGSCHEMA = ?)]]>
+  </trigger_text.where_form_tri_no_all>
+  <trigger_text.orderby type="orderby"><![CDATA[routineschema,routinename]]></trigger_text.orderby>
+  
+  <trigger_text_no_tab_all type="select">
+    <![CDATA[]]>  
+  </trigger_text_no_tab_all>  
+  
+</triggers>
+
+
+<grants type="type">
+  <!-- P_GetRightTextOfTab -->
+  <grant_tab type="select">
+    <![CDATA[]]>
+  </grant_tab>
+
+  <!-- P_GetRightTextOfProc  -->
+  <grant_proc type="select">
+    <![CDATA[]]>
+  </grant_proc> 
+</grants>
+
+</metadata>

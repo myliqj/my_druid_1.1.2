@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- 具体所有节 CDATA，都要有 type 属性 ，否则无法加载  -->
+
+<metadata dbtype="db2">  
+
+<systems type="type">
+
+  <!-- L_GetCurUserName -->
+  <current_username type="select">
+	<![CDATA[SELECT TRIM(CURRENT SCHEMA) AS USERNAME FROM SYSIBM.SYSDUMMY1]]>
+  </current_username>
+  
+  <!-- L_GetLoginUserName -->
+  <login_username type="select">
+	<![CDATA[SELECT TRIM(USER) AS LOGINUSER FROM SYSIBM.SYSDUMMY1]]>
+  </login_username>
+
+</systems>
+ 
+
+<tables type="type">
+  <!-- P_GetTableList / P_GetTableDesc(where) -->
+  <table_list type="select">
+	<![CDATA[
+	 SELECT TRIM(A.TABSCHEMA)||'.'||TRIM(A.TABNAME) TABLENAME
+	   , value( TRIM(A.BASE_TABSCHEMA)||'.'||TRIM(A.BASE_TABNAME),TRIM(A.TABSCHEMA)||'.'||TRIM(A.TABNAME)) BASETABLENAME 	
+	   , A.REMARKS DESCRIPTION,A.CREATE_TIME CREATETIME,A.STATS_TIME STATSTIME
+	   , A.TBSPACE TABLESPACE, A.INDEX_TBSPACE INDEXTABLESPACE
+	   , A.CARD ROWSCOUNT
+	   , CASE A.TYPE WHEN 'T' THEN 'TABLE' WHEN 'V' THEN 'VIEW'
+	       WHEN 'N' THEN 'NICKNAME' WHEN 'A' THEN 'ALIAS' ELSE 'UNKNOW' END TABLETYPE  
+	   , A.TABLEID OBJECTID
+	 FROM SYSCAT.TABLES A
+	 where 1=1 ]]>
+  </table_list>
+  <table_list.where type="where"><![CDATA[a.TABNAME = ? AND a.TABSCHEMA = ?]]></table_list.where>
+  <table_list.where_nosys type="where"><![CDATA[a.TABSCHEMA NOT LIKE 'SYS%']]></table_list.where_nosys>
+  <table_list.orderby type="orderby"><![CDATA[TABLENAME]]></table_list.orderby>
+  <table_list.remarks type="remarks"><![CDATA[获取表信息（包括实体表，视图，昵称，别名，同义词）：TableName,BaseTableName,Description,CreateTime,STATS_TIME
+	  ,TableSpace,IndexTableSpace,RowsCount,TableType:TABLE/VIEW/NICKNAME/ALIAS,ObjectID]]>
+  </table_list.remarks>
+  <!-- <table_list.params>
+    <tabname DataType="VARCHAR">1</tabname>
+    <tabschema DataType="VARCHAR">2</tabschema>
+  </table_list.params>  -->
+  	
+  <!-- L_BuildTabArrDDL -->
+  <table_arr type="select">   
+    <![CDATA[
+      SELECT COLCOUNT,TBSPACE,INDEX_TBSPACE,LONG_TBSPACE
+        ,DATACAPTURE,VOLATILE,APPEND_MODE,LOCKSIZE,LOG_ATTRIBUTE
+        ,TYPE, REMARKS,PROPERTY
+      FROM SYSCAT.TABLES 
+      WHERE TABNAME = ? AND TABSCHEMA = ? and TYPE='T'
+    ]]>
+  </table_arr>	
+
+
+  <!-- L_BuildTabInTabSpaceDDL -->
+  <table_arr_space type="select">   
+    <![CDATA[
+      select tbspace,index_tbspace,long_tbspace,log_attribute,compression 
+      from syscat.tables where tabname = ? and tabschema = ?
+    ]]>
+  </table_arr_space>
+  <table_arr_space_partition_exp type="select">   
+    <![CDATA[
+      select DATAPARTITIONEXPRESSION K,NULLSFIRST N
+      from syscat.datapartitionexpression where tabname = ? and tabschema = ?
+      order by DATAPARTITIONKEYSEQ
+    ]]>
+  </table_arr_space_partition_exp>
+  <table_arr_space_partition_val type="select">   
+    <![CDATA[
+      select trim(DATAPARTITIONNAME) NAME,max(length(DATAPARTITIONNAME)) over(partition by a.tabname) N_LEN
+        ,trim(LOWINCLUSIVE) LS,trim(LOWVALUE) LV,trim(HIGHINCLUSIVE) HS,trim(HIGHVALUE) HV, trim(c.TBSPACE) TB
+      from syscat.datapartitions a left join SYSCAT.TABLESPACES c on a.TBSPACEID=c.TBSPACEID
+      where a.tabname = ? and a.tabschema = ?
+      order by a.SEQNO
+    ]]>
+  </table_arr_space_partition_val>
+</tables> 
+
+
+<fields type="type"> 
+  <!-- P_GetFieldList -->
+  <field_list type="select">
+    <![CDATA[
+	 select a.colno+1 No, a.colname FieldName, a.remarks Description, a.typename, a.length
+	   , a.scale , a.nulls NotNull , a.default 
+	   , a.generated, a.identity, a.text, a.logged, a.compact, a.codepage
+	 from syscat.columns a
+	 where a.tabname = ? and a.tabschema = ?
+	 order by a.colno
+	]]>
+  </field_list>
+  <field_list.remarks type="remarks"><![CDATA[获取字段信息：No,FieldName,Description,typename,length
+    ,scale,NotNull:N(不可空)/Y(可空),default]]></field_list.remarks>
+  
+  <field_arr_identity type="select">
+    <![CDATA[
+     SELECT START,INCREMENT,MINVALUE,MAXVALUE,CYCLE,CACHE,NEXTCACHEFIRSTVALUE
+     FROM SYSCAT.COLIDENTATTRIBUTES
+     WHERE TABNAME = ? AND TABSCHEMA = ? AND COLNAME = ?
+    ]]>
+  </field_arr_identity>
+</fields>
+
+
+<indexes type="type">
+  <!-- P_GetIndexList -->
+  <index_list type="select">
+    <![CDATA[
+	 SELECT TRIM(A.INDSCHEMA) INDEXSCHEMA, TRIM(A.INDNAME) INDEXNAME, SUBSTR(REPLACE(A.COLNAMES,'+',','),2) FIELDNAMES
+	   , A.UNIQUERULE INDEXTYPE, A.CREATE_TIME,A.STATS_TIME, A.REMARKS,A.INDCARD ROWSCOUNT,A.INDEX_OBJECTID OBJECTID
+	 FROM SYSCAT.INDEXES A WHERE TABNAME = ? AND TABSCHEMA = ?
+	 ORDER BY CASE WHEN A.UNIQUERULE='P' THEN 1 WHEN A.UNIQUERULE='U' THEN 2 ELSE 3 END,A.CREATE_TIME
+	]]>
+  </index_list>
+  <index_list.remarks type="remarks"><![CDATA[获取索引信息：INDEXSCHEMA,INDEXNAME,FIELDNAMES,INDEXTYPE:P/D/U
+    ,CREATE_TIME,STATS_TIME,REMARKS,RowsCount,ObjectID]]></index_list.remarks>
+</indexes>
+
+<views type="type">
+  <!-- P_GetViewDesc -->
+  <view_info type="select">
+    <![CDATA[
+	  select V.VALID,R.CREATE_TIME, R.REMARKS
+      from syscat.tables r inner join syscat.views v on v.viewname=r.tabname and v.viewschema=r.tabschema
+      where r.tabname = ? and r.tabschema = ? 
+	]]>
+  </view_info>
+
+  <!-- P_GetViewText -->
+  <view_text type="select">
+    <![CDATA[
+	  select R.TEXT,R.FUNC_PATH,R.VIEWCHECK,R.READONLY,R.VALID,R.DEFINER,T.PROPERTY, T.REMARKS
+	  from syscat.views r left join syscat.tables t on r.viewname=t.tabname and r.viewschema=t.tabschema 
+	  where r.viewname= ? and r.viewschema= ?  order by r.seqno 
+	]]>
+  </view_text>
+</views>
+
+<alias type="type">
+  <!-- P_GetAliasText -->
+  <alias_text type="select">
+    <![CDATA[ 
+	  select 'CREATE ALIAS '||TRIM(A.TABSCHEMA)||'.'||TRIM(A.TABNAME)
+	     ||' FOR ' || TRIM(A.BASE_TABSCHEMA)||'.'||TRIM(A.BASE_TABNAME) ALIAS_TEXT
+	     ,A.REMARKS
+	  from syscat.tables a
+	  where a.tabname = ? and a.tabschema = ? and a.type='A' 
+	]]>
+  </alias_text>
+</alias>
+
+<nicknames type="type">
+  <!-- P_GetNickNameText -->
+  <nickname_text type="select">
+    <![CDATA[
+	  select A.SERVERNAME,A.REMOTE_SCHEMA,A.REMOTE_TABLE,A.TABSCHEMA,A.TABNAME,A.REMARKS
+	  from syscat.nicknames a
+	  where a.tabname = ? and a.tabschema = ? 
+	]]>  
+  </nickname_text>
+  <nickname_server type="select">
+    <![CDATA[
+	  select a.wrapname, a.servername, a.servertype, a.serverversion, a.remarks
+	  from syscat.servers a where a.servername = ?
+	]]>  
+  </nickname_server>
+  <nickname_server_option type="select">
+    <![CDATA[
+	  select a.option,a.setting, a.remarks from syscat.serveroptions a where a.servername = ?
+	]]>  
+  </nickname_server_option>
+  <nickname_server_wrapper type="select">
+    <![CDATA[
+	  select wrapname,library,remarks from syscat.wrappers a where a.wrapname = ?
+	]]>  
+  </nickname_server_wrapper>
+  <nickname_server_wrapper_option type="select">
+    <![CDATA[
+	  select a.option,a.setting from syscat.wrapoptions a where a.wrapname = ?
+	]]>  
+  </nickname_server_wrapper_option>  
+  <nickname_server_user_mapping type="select">
+    <![CDATA[
+	  select a.authid,max(case when a.option='REMOTE_AUTHID' then cast(a.setting as varchar(500)) end) remote_authid 
+	    ,max(case when a.option='REMOTE_PASSWORD' then cast(a.setting as varchar(500)) end) remote_password 
+	  from syscat.useroptions a where a.servername = ?
+	  group by a.authid
+	]]>
+  </nickname_server_user_mapping>
+   
+</nicknames>
+
+<procedures type="type">
+
+  <!-- P_GetProcList / P_GetProcDesc(where) -->
+  <proc_list type="select">
+    <![CDATA[
+	  select r.routineschema,trim(r.routineschema)||'.'||trim(r.routinename) ProcName, r.remarks Description,r.create_time CreateTime
+	    , case when (r.origin = 'Q' and r.valid!='Y') or p.valid!='Y' then 'N' else 'Y' end IsValid
+	    , r.SPECIFICNAME
+	    , case when r.ROUTINETYPE='P' then 'PROCEDURE'
+	           when r.ROUTINETYPE='F' then 'FUNCTION' else 'N/A' end procType
+	    , trim(char(r.routineid))||value(' ' ||p.pkgname,'') ObjectID
+	  from syscat.routines r left outer join syscat.packages p
+	    on p.pkgschema = r.routineschema 
+	      and p.pkgname = 'P'|| case when r.lib_id<10000000 then substr(char(r.lib_id+10000000),2) else trim(char(r.lib_id)) end
+	  where 1=1 ]]>  
+  </proc_list>
+  <proc_list.where type="where"><![CDATA[ (r.routinename = ? or r.specificname = ?) and r.routineschema = ?]]></proc_list.where>
+  <proc_list.where_nosys type="where"><![CDATA[r.routineschema NOT LIKE 'SYS%']]></proc_list.where_nosys>	
+  <proc_list.orderby type="orderby"><![CDATA[CreateTime desc]]></proc_list.orderby>
+  <proc_list.remarks type="remarks"><![CDATA[获取过程/函数列表信息：ProcSchema,ProcName,Description,CreateTime
+	  ,IsValid:Y/N,SpecificName,ProcType,ObjectID]]>
+  </proc_list.remarks>
+
+  <!-- P_RebindProc_RunText -->
+  <proc_rebind_runtext type="select">
+    <![CDATA[
+	  select 'call sysproc.REBIND_ROUTINE_PACKAGE(''P'',''#procshema#'',''#procname#'',''ANY'') ' proc_rebind_runtext
+	  from sysibm.sysdummy1 
+	]]>  
+  </proc_rebind_runtext>
+  
+  
+  <!-- P_GetProcParamsVo -->
+  <proc_params type="select">
+    <![CDATA[
+    select * from (
+	  select PROCSCHEMA ms,a. PROCNAME mc,PARMNAME ParamName, TYPENAME ParamType, PARM_MODE Direction , LENGTH Size, ORDINAL SEQ
+	  from syscat.PROCPARMS a
+	  union all
+	  select FUNCSCHEMA ms,FUNCNAME mc,case when a.ROWTYPE='C' then 'FUNC_RETURN' else PARMNAME end ParamName, TYPENAME ParamType
+	    , case a.ROWTYPE when 'P' then 'IN' when 'C' then 'RESULT' when 'R' then 'RESULT_ROW'
+	        else 'N/A' end Direction
+	    , LENGTH Size
+	    , case when a.ROWTYPE='R' then ORDINAL+100 when a.ROWTYPE='C' then 999 else ORDINAL end SEQ
+	  from syscat.FUNCPARMS a
+	  ) t where t.mc = ? and t.ms = ? 
+	  order by SEQ
+	]]>
+  </proc_params>
+  
+  <!-- L_GetProcParamSize -->
+  <proc_param_size type="select">
+    <![CDATA[
+	  select length from syscat.procparms where procname = ? and procschema = ? and parmname = ?
+	]]>
+  </proc_param_size>
+    
+  <!-- P_GetProcText -->
+  <proc_text type="select">
+    <![CDATA[
+    select * from (
+	  select a.ROUTINESCHEMA,a.routinename
+	    , case when user<>ROUTINESCHEMA and ROUTINESCHEMA not like 'SYS%' then 1 else 0 end sschema
+	    , a.text proctext, a.REMARKS, a.SPECIFICNAME
+	    , case when a.ROUTINETYPE='P' then 'PROCEDURE'
+	           when a.ROUTINETYPE='F' then 'FUNCTION' else 'N/A' end procType
+	  from syscat.routines a
+	  union all
+	  select TRIGSCHEMA routineschema,TRIGNAME routinename
+	    , case when user<>TRIGSCHEMA and TRIGSCHEMA not like 'SYS%' then 1 else 0 end sschema
+	    , text proctext, REMARKS, TRIGNAME SPECIFICNAME, 'TRIGGER' procType
+	  from syscat.triggers t
+	  ) r where r.routinename=? and r.routineschema=? 
+	]]>  
+  </proc_text> 
+</procedures>
+
+<triggers type="type">
+
+  <!-- P_GetProcList : trigger -->
+  <trigger_list type="select">
+    <![CDATA[
+	  select trigschema ProcSchema,trigname ProcName,remarks Description
+	    , create_time CreateTime, valid IsValid
+	    , trim(t.tabschema)||'.'||t.tabname specificname,'TRIGGER' ProcType
+	    , t.TRIGEVENT||'-'||t.TRIGTIME||'-'||t.GRANULARITY ObjectID
+      from syscat.triggers t
+      where 1=1
+	]]>  
+  </trigger_list>
+  <trigger_list.where type="where"><![CDATA[t.trigname = ? and t.trigschema = ?]]></trigger_list.where>	
+  <trigger_list.where_nosys type="where"><![CDATA[t.trigschema NOT LIKE 'SYS%']]></trigger_list.where_nosys>
+  <trigger_list.orderby type="orderby"><![CDATA[CreateTime desc]]></trigger_list.orderby>
+  <trigger_list.remarks type="remarks"><![CDATA[获取触发器列表信息：ProcSchema,ProcName,Description,CreateTime
+  ,IsValid:Y/N,SpecificName,ProcType,ObjectID]]>
+  </trigger_list.remarks>
+  
+  <!-- P_GetTriggerText <1> tab -->
+  <trigger_text_tab_all type="select">
+    <![CDATA[
+	  select TABSCHEMA,TABNAME,trim(TRIGSCHEMA) routineschema,TRIGNAME routinename
+	    , case when user<>TRIGSCHEMA and TRIGSCHEMA not like 'SYS%' then 1 else 0 end sschema
+	    , text proctext, REMARKS
+	  from syscat.triggers t
+	  where t.TABSCHEMA = ? and t.TABNAME = ?
+	  order by routineschema,routinename
+	]]>  
+  </trigger_text_tab_all>  
+  <trigger_text.where_tab type="where"><![CDATA[t.TABSCHEMA = ? and t.TABNAME = ?]]></trigger_text.where_tab>
+  <trigger_text.where_form_tri type="where"><![CDATA[exists(select 1 from syscat.triggers x 
+    where x.TRIGNAME = ? and x.TRIGSCHEMA = ? and t.TABSCHEMA = x.TABSCHEMA and t.TABNAME=x.TABNAME)]]>
+  </trigger_text.where_form_tri>
+  <trigger_text.where_form_tri_no_all type="where"><![CDATA[not (t.TRIGNAME = ? and t.TRIGSCHEMA = ?)]]>
+  </trigger_text.where_form_tri_no_all>
+  <trigger_text.orderby type="orderby"><![CDATA[routineschema,routinename]]></trigger_text.orderby>
+  
+  <trigger_text_no_tab_all type="select">
+    <![CDATA[
+	  select TABSCHEMA,TABNAME,trim(TRIGSCHEMA) routineschema,TRIGNAME routinename
+	    , case when user<>TRIGSCHEMA and TRIGSCHEMA not like 'SYS%' then 1 else 0 end sschema
+	    , text proctext, REMARKS
+	  from syscat.triggers t
+	  where exists(select 1 from syscat.triggers x 
+               where x.TRIGNAME = ? and x.TRIGSCHEMA = ? and t.TABSCHEMA = x.TABSCHEMA and t.TABNAME=x.TABNAME)
+	  order by routineschema,routinename
+	]]>  
+  </trigger_text_no_tab_all>  
+  
+</triggers>
+
+
+<grants type="type">
+  <!-- P_GetRightTextOfTab -->
+  <grant_tab type="select">
+    <![CDATA[
+      select distinct trim(grantee) grantee,granteetype,controlauth,alterauth,indexauth,insertauth
+        , deleteauth,selectauth,updateauth,refauth referencesauth
+        , case when grantor like 'SYS%' then 1 else 0 end issys, trim(grantor) grantor
+      from syscat.tabauth where tabname = ? and tabschema = ?
+    ]]>
+  </grant_tab>
+
+  <!-- P_GetRightTextOfProc  -->
+  <grant_proc type="select">
+    <![CDATA[
+      select distinct trim(grantee) grantee,granteetype,executeauth, case when grantor like 'SYS%' then 1 else 0 end issys, trim(grantor) grantor
+      from syscat.routineauth where specificname = ? and schema = ?
+    ]]>
+  </grant_proc> 
+</grants>
+
+</metadata>

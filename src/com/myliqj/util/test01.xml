@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<xml-body> 
+
+<USERNAME><![CDATA[SELECT TRIM(CURRENT SCHEMA) AS USERNAME FROM SYSIBM.SYSDUMMY1]]></USERNAME>
+<LOGINUSER><![CDATA[SELECT TRIM(USER) AS LOGINUSER FROM SYSIBM.SYSDUMMY1]]></LOGINUSER>
+
+
+
+
+
+<INDEX>
+<![CDATA[
+ SELECT TRIM(A.INDSCHEMA) INDEXSCHEMA, TRIM(A.INDNAME) INDEXNAME, SUBSTR(REPLACE(A.COLNAMES,'+',','),2) FIELDNAMES
+   , A.UNIQUERULE INDEXTYPE, A.CREATE_TIME,A.STATS_TIME, A.REMARKS,A.INDCARD ROWSCOUNT,A.INDEX_OBJECTID OBJECTID
+ FROM SYSCAT.INDEXES A WHERE TABNAME = ? AND TABSCHEMA = ?
+ ORDER BY CASE WHEN A.UNIQUERULE='P' THEN 1 WHEN A.UNIQUERULE='U' THEN 2 ELSE 3 END,A.CREATE_TIME
+]]>
+<REMARKS><![CDATA[获取索引信息：INDEXSCHEMA,INDEXNAME,FIELDNAMES,INDEXTYPE:P/D/U
+  ,CREATE_TIME,STATS_TIME,REMARKS,RowsCount,ObjectID]]></REMARKS>
+<PARAMS>
+  <TABNAME DataType="VARCHAR">1</TABNAME>
+  <TABSCHEMA DataType="VARCHAR">2</TABSCHEMA>
+</PARAMS>
+</INDEX>
+
+
+<TABLE>
+<![CDATA[
+ SELECT TRIM(A.INDSCHEMA) INDEXSCHEMA, TRIM(A.INDNAME) INDEXNAME, SUBSTR(REPLACE(A.COLNAMES,'+',','),2) FIELDNAMES
+   , A.UNIQUERULE INDEXTYPE, A.CREATE_TIME,A.STATS_TIME, A.REMARKS,A.INDEX_OBJECTID OBJECTID
+ FROM SYSCAT.INDEXES A WHERE TABNAME = ? AND TABSCHEMA = ?
+ ORDER BY CASE WHEN A.UNIQUERULE='P' THEN 1 WHEN A.UNIQUERULE='U' THEN 2 ELSE 3 END,A.CREATE_TIME
+]]>
+<REMARKS><![CDATA[获取表信息（包括实体表，视图，昵称，别名，同义词）：TableName,BaseTableName,Description,CreateTime
+  ,TableSpace,IndexTableSpace,RowsCount,TableType:,ObjectID]]></REMARKS>
+<PARAMS>
+  <TABNAME DataType="VARCHAR">1</TABNAME>
+  <TABSCHEMA DataType="VARCHAR">2</TABSCHEMA>
+</PARAMS>
+</TABLE>
+
+<tables>
+    <!-- P_GetTableList -->
+	<![CDATA[
+	 SELECT TRIM(A.TABSCHEMA)||'.'||TRIM(A.TABNAME) TABLENAME
+	   , TRIM(A.BASE_TABSCHEMA)||'.'||TRIM(A.BASE_TABNAME) BASETABLENAME 	
+	   , A.REMARKS DESCRIPTION,A.CREATE_TIME CREATETIME,A.STATS_TIME STATSTIME
+	   , A.TBSPACE TABLESPACE, A.INDEX_TBSPACE INDEXTABLESPACE
+	   , A.CARD ROWSCOUNT
+	   , CASE A.TYPE WHEN 'T' THEN 'TABLE' WHEN 'V' THEN 'VIEW'
+	       WHEN 'N' THEN 'NICKNAME' WHEN 'A' THEN 'ALIAS' ELSE 'UNKNOW' END TABLETYPE  
+	   , A.TABLEID OBJECTID
+	 FROM SYSCAT.TABLES A
+	]]>
+	<WHERE><![CDATA[TABNAME = ? AND TABSCHEMA = ?]]></WHERE>
+	<ORDERBY><![CDATA[TABLENAME]]></ORDERBY>
+	<REMARKS><![CDATA[获取表信息（包括实体表，视图，昵称，别名，同义词）：TableName,BaseTableName,Description,CreateTime,STATS_TIME
+	  ,TableSpace,IndexTableSpace,RowsCount,TableType:TABLE/VIEW/NICKNAME/ALIAS,ObjectID]]></REMARKS>
+	<PARAMS>
+	  <TABNAME DataType="VARCHAR">1</TABNAME>
+	  <TABSCHEMA DataType="VARCHAR">2</TABSCHEMA>
+	</PARAMS>
+	
+  <!-- L_BuildTabArrDDL -->
+  <table_arr>   
+    <![CDATA[
+      SELECT COLCOUNT,TBSPACE,INDEX_TBSPACE,LONG_TBSPACE
+        ,DATACAPTURE,VOLATILE,APPEND_MODE,LOCKSIZE,LOG_ATTRIBUTE
+        ,TYPE, REMARKS,PROPERTY
+      FROM SYSCAT.TABLES 
+      WHERE TABNAME = ? AND TABSCHEMA = ? and TYPE='T'
+    ]]>
+  </table_arr>	
+
+
+  <!-- L_BuildTabInTabSpaceDDL -->
+  <table_arr_space>   
+    <![CDATA[
+      select tbspace,index_tbspace,long_tbspace,log_attribute,compression 
+      from syscat.tables where tabname = ? and tabschema = ?
+    ]]>
+  </table_arr_space>
+  <table_arr_space_partition_exp>   
+    <![CDATA[
+      select DATAPARTITIONEXPRESSION K,NULLSFIRST N
+      from syscat.datapartitionexpression where tabname = ? and tabschema = ?
+      order by DATAPARTITIONKEYSEQ
+    ]]>
+  </table_arr_space_partition_exp>
+  <table_arr_space_partition_val>   
+    <![CDATA[
+      select trim(DATAPARTITIONNAME) NAME,max(length(DATAPARTITIONNAME)) over(partition by a.tabname) N_LEN
+        ,trim(LOWINCLUSIVE) LS,trim(LOWVALUE) LV,trim(HIGHINCLUSIVE) HS,trim(HIGHVALUE) HV, trim(c.TBSPACE) TB
+      from syscat.datapartitions a left join SYSCAT.TABLESPACES c on a.TBSPACEID=c.TBSPACEID
+      where a.tabname = ? and a.tabschema = ?
+      order by a.SEQNO
+    ]]>
+  </table_arr_space_partition_val>
+  
+  
+  		
+</tables>
+
+<grants>
+
+  <!-- P_GetRightTextOfTab -->
+  <grant_tab>
+    <![CDATA[
+      select distinct grantee,granteetype,controlauth,alterauth,indexauth,insertauth
+        , deleteauth,selectauth,updateauth,refauth
+        , case when grantor like ''SYS%'' then 1 else 0 end issys, grantor
+      from syscat.tabauth where tabname = ? and tabschema = ?
+    ]]>
+  </grant_tab>
+
+  <!-- P_GetRightTextOfProc  -->
+  <grant_proc>
+    <![CDATA[
+      select distinct grantee,granteetype,executeauth, case when grantor like ''SYS%'' then 1 else 0 end issys, grantor
+      from syscat.routineauth where specificname = ? and schema = ?
+    ]]>
+  </grant_proc>
+</grants>
+
+<views>
+  <!-- P_GetViewDesc -->
+  <view_info>
+    <![CDATA[
+	  select v.valid,r.create_time, r.remarks
+      from syscat.tables r inner join syscat.views v on v.viewname=r.tabname and v.viewschema=r.tabschema
+      where r.tabname = ? and r.tabschema = ? 
+	]]>
+  </view_info>
+
+  <!-- P_GetViewText -->
+  <view_text>
+    <![CDATA[
+	  select r.text,r.func_path,r.viewcheck,r.readonly,r.valid,r.definer,t.property, t.remarks
+	  from syscat.views r left join syscat.tables t on r.viewname=t.tabname and r.viewschema=t.tabschema 
+	  where r.viewname= ? and r.viewschema= ?  order by r.seqno 
+	]]>
+  </view_text>
+</views>
+
+<nicknames>
+  <!-- P_GetNickNameText -->
+  <nickname_text>
+    <![CDATA[
+	  select a.servername,a.remote_schema,a.remote_table,a.tabschema,a.remarks
+	  from syscat.nicknames a
+	  where a.tabname = ? and a.tabschema = ? 
+	]]>  
+  </nickname_text>
+  <nickname_server>
+    <![CDATA[
+	  select a.wrapname, a.servername, a.servertype, a.serverversion, a.remarks
+	  from syscat.servers a where a.servername = ?
+	]]>  
+  </nickname_server>
+  <nickname_server_option>
+    <![CDATA[
+	  select a.option,a.setting, a.remarks from syscat.serveroptions a where a.servername = ?
+	]]>  
+  </nickname_server_option>
+  <nickname_server_wrapper>
+    <![CDATA[
+	  select wrapname,library,remarks from syscat.wrappers a where a.wrapname = ?
+	]]>  
+  </nickname_server_wrapper>
+  <nickname_server_wrapper_option>
+    <![CDATA[
+	  select a.option,a.setting from syscat.wrapoptions a where a.wrapname = ?
+	]]>  
+  </nickname_server_wrapper_option>  
+  <nickname_server_user_mapping>
+    <![CDATA[
+	  select a.authid,max(case when a.option=''REMOTE_AUTHID'' then cast(a.setting as varchar(500)) end) remote_authid 
+	    ,max(case when a.option=''REMOTE_PASSWORD'' then cast(a.setting as varchar(500)) end) remote_password 
+	  from syscat.useroptions a where a.servername = ?
+	  group by a.authid
+	]]>
+  </nickname_server_user_mapping>
+   
+</nicknames>
+
+<procedures>
+  <!-- P_RebindProc_RunText -->
+  <proc_rebind_runtext>
+    <![CDATA[
+	  select 'call sysproc.REBIND_ROUTINE_PACKAGE(''P'',''#procshema#'',''#procname#'',''ANY'') ' proc_rebind_runtext
+	  from sysibm.sysdummy1 
+	]]>  
+  </proc_rebind_runtext>
+  
+</procedures>
+
+<triggers>
+  <!-- P_GetTriggerText -->
+  <trigger_text>
+    <![CDATA[
+	  select TABSCHEMA,TABNAME,trim(TRIGSCHEMA) routineschema,TRIGNAME routinename
+	    , case when user<>TRIGSCHEMA and TRIGSCHEMA not like 'SYS%' then 1 else 0 end sschema
+	    , text proc_text, REMARKS
+	  from syscat.triggers t 
+	]]>  
+	<where_tab><![CDATA[t.TABSCHEMA = ? and t.TABNAME = ?]]></where_tab>
+	<where_form_tri>
+	  <![CDATA[
+		  exists(select 1 from syscat.triggers x where x.TRIGSCHEMA = ? and x.TRIGNAME =
+		     and t.TABSCHEMA = x.TABSCHEMA and t.TABNAME=x.TABNAME) 
+	  ]]>
+	</where_form_tri>
+	<orderby><![CDATA[routineschema,routinename]]></orderby>
+  </trigger_text>
+  
+</triggers>
+
+
+
+
+<a>
+        <b>fff</b>
+        <c>ccc</c>
+    </a>
+
+<test1>textConten&lt;&gt;!t</test1>
+    <test2><![CDATA[ttd<>df]]></test2>
+</xml-body>
