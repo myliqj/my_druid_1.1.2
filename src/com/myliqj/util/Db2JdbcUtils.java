@@ -35,7 +35,8 @@ public class Db2JdbcUtils {
 	public boolean isWindows = true;
 	public String C_LineBreak = isWindows?"\r\n":"\n";		
 	
-	public String dbType = "jdbc";
+	private String dbType = "jdbc";
+	private String dbversion = "";
 	private String driver;
 	private String url;
 	private String user;
@@ -65,7 +66,15 @@ public class Db2JdbcUtils {
 	 * 表示正在执行的非查询语句 ， 一个联接只有建立一个，不释放。  
 	 */
 	private Statement stmt = null;
-	
+
+	public String getDbType() {
+		return dbType;
+	}
+
+	public void setDbType(String dbType) {
+		this.dbType = dbType;
+	}
+
 	public boolean P_SetKeyValue(String key,String val){
 		if ("IncludeSysProc".equals(key)){
 			setIsInludeSystemObject(Integer.valueOf(val));
@@ -173,6 +182,24 @@ public class Db2JdbcUtils {
 	public boolean isDb2(){
 		return JdbcConstants.DB2.equals(dbType);
 	}
+	
+	public String getDBVersion(){
+		if (!"".equals(dbversion)){
+			return dbversion;
+		}
+		if (this.isDb2()){
+			String sql="select versionnumber from SYSIBM.SYSVERSIONS order by versionnumber fetch first 1 row only";
+			try {
+				Object obj = querySqlToVal(-1,sql);
+				if(obj!=null && obj instanceof String){
+					dbversion = (String) obj;
+					return dbversion;
+				}			
+			} catch (Exception e) {}
+		}
+		return "";
+	}
+	
 	public boolean isOracle(){
 		return JdbcConstants.ORACLE.equals(dbType);
 	}
@@ -517,7 +544,7 @@ public class Db2JdbcUtils {
 	 * @param sqlId
 	 * @param sql
 	 * @return -2 未执行,-3 错误,-9 不是call(最络没执行), ddl 语句返回0, 正常ins/del/ups 返回影响行数
-	 *   call-return:－10 表示执行成功,-9不是过程不执行,-12 未执行,-13 报错
+	 *   call-return:-10 表示执行成功,-9不是过程不执行,-12 未执行,-13 报错
 	 * @throws Exception
 	 */
 	public int executeUpdate(int sqlId,String sql) throws Exception{
@@ -2098,7 +2125,28 @@ public class Db2JdbcUtils {
 		str = str.replaceAll("#procshema#", ui.user).replaceAll("#procname#", ui.name);
 		return str;
 	}
-	
+	public String P_RebindProc(String I_Name) throws Exception{
+		
+		if (!this.isDb2()) return dbType+" 不支持 重新绑定操作！";
+		UserInfo ui = new UserInfo(I_Name);
+		String str = null;
+		String version = getDBVersion();
+		if (version.startsWith("11")){
+			str = String.format("CALL SYSPROC.REBIND_ROUTINE_PACKAGE('P','%s','',''%s','')",ui.user,ui.name);
+		}else{
+			str = String.format("CALL SYSPROC.REBIND_ROUTINE_PACKAGE('P','%s.%s','ANY')",ui.user,ui.name);			
+		}  
+
+		int reval = this.executeUpdate(-1, str);
+		if (reval==-10){
+			str = "succee" + str;
+		}else{			
+			// 出错
+			str = reval+" " + str + " "+ this.Last_Message();
+		}
+		
+		return str;
+	}
 	
 	public List<ProcParamInfo> P_GetProcParamsVo(String I_Name) throws Exception{	
 		return P_GetDbObjFromSqlDefine(ProcParamInfo.class,I_Name, SqlObjDefine.PROCEDURE_PARAMS);		
